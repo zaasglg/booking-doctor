@@ -30,7 +30,7 @@ const PlaceholderTab = ({ title, icon: Icon, description }: { title: string; ico
 );
 
 export default function ProfilePage() {
-    const { isAuthenticated, isLoading } = useAuth();
+    const { isAuthenticated, isLoading, user } = useAuth();
     const router = useRouter();
     const [activeTab, setActiveTab] = useState("profile");
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -38,8 +38,14 @@ export default function ProfilePage() {
     useEffect(() => {
         if (!isLoading && !isAuthenticated) {
             router.push("/");
+            return;
         }
-    }, [isAuthenticated, isLoading, router]);
+
+        // If the logged-in user is a doctor, redirect to doctor dashboard
+        if (!isLoading && isAuthenticated && user?.role === 'DOCTOR') {
+            router.push('/doctor/dashboard');
+        }
+    }, [isAuthenticated, isLoading, user, router]);
 
     if (isLoading) {
         return (

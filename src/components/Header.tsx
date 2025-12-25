@@ -102,7 +102,7 @@ function Navbar({ className, hideLogo = false }: { className?: string; hideLogo?
           <>
             {/* User Info */}
             <button
-              onClick={() => router.push("/profile")}
+              onClick={() => router.push(user?.role === 'DOCTOR' ? '/doctor/dashboard' : '/profile')}
               className="flex items-center space-x-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm px-4 py-2 rounded-2xl border border-gray-200 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-800 transition-colors duration-200"
             >
               <User className="h-4 w-4 text-gray-600 dark:text-gray-300" />

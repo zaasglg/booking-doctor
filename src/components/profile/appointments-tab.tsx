@@ -54,6 +54,11 @@ const statusLabels: Record<string, string> = {
 export const AppointmentsTab = () => {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [currentReviewAppointment, setCurrentReviewAppointment] = useState<string | null>(null);
+  const [reviewedAppointments, setReviewedAppointments] = useState<string[]>([]);
   const [filter, setFilter] = useState<"all" | "upcoming" | "completed" | "cancelled">("all");
   const [showBookingModal, setShowBookingModal] = useState(false);
 
@@ -83,7 +88,19 @@ export const AppointmentsTab = () => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
-          setAppointments(await res.json());
+          const data = await res.json();
+          // mark reviewed flag by checking reviews existence could be added, but we'll rely on server check on submit
+          setAppointments(data);
+          // fetch user's reviews to mark which appointments have been reviewed
+          try {
+            const revRes = await fetch('/api/reviews', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (revRes.ok) {
+              const userReviews = await revRes.json();
+              setReviewedAppointments((userReviews || []).map((r: any) => r.appointmentId));
+            }
+          } catch (err) {
+            console.error('Failed to fetch user reviews', err);
+          }
         }
       } catch (error) {
         console.error("Failed to load appointments", error);
@@ -401,6 +418,35 @@ export const AppointmentsTab = () => {
                           Отменить
                         </button>
                       )}
+                        {appointment.status === 'completed' && !reviewedAppointments.includes(appointment.id) && (
+                          <button
+                            onClick={async () => {
+                              // check if review exists (extra safeguard)
+                              try {
+                                const token = localStorage.getItem('token');
+                                const res = await fetch(`/api/reviews?appointmentId=${appointment.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                                if (res.ok) {
+                                  const existing = await res.json();
+                                  if (existing) {
+                                    alert('Вы уже оставили отзыв для этой записи.');
+                                    // mark locally to hide button
+                                    setReviewedAppointments(prev => Array.from(new Set([...prev, appointment.id])));
+                                    return;
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error checking review', err);
+                              }
+                              setCurrentReviewAppointment(appointment.id);
+                              setReviewRating(5);
+                              setReviewComment('');
+                              setReviewModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-200"
+                          >
+                            Оценить
+                          </button>
+                        )}
                     </div>
                   </div>
                 </div>
@@ -653,6 +699,82 @@ export const AppointmentsTab = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Review modal */}
+      {reviewModalOpen && currentReviewAppointment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Оставить отзыв</h3>
+              <button onClick={() => setReviewModalOpen(false)} className="text-gray-400 hover:text-gray-600">×</button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Оценка</label>
+                <div className="flex items-center space-x-2">
+                  {[5,4,3,2,1].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setReviewRating(s)}
+                      className={`px-3 py-1 rounded-lg border ${reviewRating === s ? 'bg-yellow-400 text-white' : 'bg-white dark:bg-gray-800'}`}
+                    >{s} ★</button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Комментарий (опционально)</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  className="w-full p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white"
+                  rows={4}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <button
+                  onClick={() => setReviewModalOpen(false)}
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-800 rounded-lg"
+                >Отмена</button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const token = localStorage.getItem('token');
+                      const res = await fetch('/api/reviews', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ appointmentId: currentReviewAppointment, rating: reviewRating, comment: reviewComment })
+                      });
+
+                      if (res.ok) {
+                        alert('Спасибо за отзыв!');
+                        // mark locally as reviewed so button disappears
+                        if (currentReviewAppointment) {
+                          setReviewedAppointments(prev => Array.from(new Set([...prev, currentReviewAppointment])));
+                        }
+                        setReviewModalOpen(false);
+                        setCurrentReviewAppointment(null);
+                        // Optionally update local appointments or refetch
+                      } else {
+                        const err = await res.json().catch(() => ({}));
+                        alert(err?.error || 'Ошибка при отправке отзыва');
+                      }
+                    } catch (err) {
+                      console.error('Failed to submit review', err);
+                      alert('Ошибка при отправке отзыва');
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >Отправить</button>
+              </div>
             </div>
           </div>
         </div>
