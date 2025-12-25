@@ -1,11 +1,15 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { User, Mail, Phone, Calendar, MapPin, Edit3, Save, X } from "lucide-react";
+import { User, Mail, Phone, Calendar, MapPin, Edit3, Save, X, Camera } from "lucide-react";
 
 export const ProfileTab = () => {
   const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(user?.avatar || null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: user?.name || "",
     email: user?.email || "",
@@ -15,10 +19,106 @@ export const ProfileTab = () => {
     gender: "",
   });
 
-  const handleSave = () => {
-    // Здесь будет логика сохранения данных
-    setIsEditing(false);
-    alert("Профиль обновлен!");
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const userData = data.user;
+
+          let formattedDate = "";
+          if (userData.birthDate) {
+            formattedDate = new Date(userData.birthDate).toISOString().split('T')[0];
+          }
+
+          setFormData(prev => ({
+            ...prev,
+            name: userData.name || prev.name,
+            email: userData.email || prev.email,
+            phone: userData.phone || prev.phone,
+            birthDate: formattedDate,
+            avatar: userData.avatar
+          }));
+
+          if (userData.avatar) {
+            setAvatarUrl(userData.avatar);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch profile", error);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/upload/avatar', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setAvatarUrl(data.avatarUrl);
+    } catch (error: any) {
+      setUploadError(error.message || 'Ошибка загрузки');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update profile');
+      }
+
+      setIsEditing(false);
+      alert("Профиль успешно обновлен!");
+    } catch (error: any) {
+      alert(error.message || "Ошибка при сохранении");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -31,6 +131,25 @@ export const ProfileTab = () => {
       gender: "",
     });
     setIsEditing(false);
+  };
+
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, "");
+    if (value.startsWith("7") || value.startsWith("8")) {
+      value = value.slice(1);
+    }
+
+    // Truncate to 10 digits
+    value = value.slice(0, 10);
+
+    let formattedValue = "+7";
+    if (value.length > 0) formattedValue += ` (${value.slice(0, 3)}`;
+    if (value.length >= 4) formattedValue += `) ${value.slice(3, 6)}`;
+    if (value.length >= 7) formattedValue += `-${value.slice(6, 8)}`;
+    if (value.length >= 9) formattedValue += `-${value.slice(8, 10)}`;
+
+    setFormData({ ...formData, phone: formattedValue });
   };
 
   return (
@@ -60,8 +179,33 @@ export const ProfileTab = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
             {/* Avatar Section */}
             <div className="lg:col-span-2 flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6 mb-6">
-              <div className="w-20 h-20 lg:w-24 lg:h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-2xl lg:text-3xl">
-                {user?.name?.charAt(0).toUpperCase()}
+              <div className="relative group">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt="Avatar"
+                    className="w-20 h-20 lg:w-24 lg:h-24 rounded-full object-cover border-4 border-white dark:border-gray-800 shadow-lg"
+                  />
+                ) : (
+                  <div className="w-20 h-20 lg:w-24 lg:h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-2xl lg:text-3xl border-4 border-white dark:border-gray-800 shadow-lg">
+                    {user?.name?.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <label className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity duration-200">
+                  <Camera className="h-6 w-6 text-white" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarChange}
+                    className="hidden"
+                    disabled={isUploading}
+                  />
+                </label>
+                {isUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+                    <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+                  </div>
+                )}
               </div>
               <div className="text-center sm:text-left">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -70,9 +214,19 @@ export const ProfileTab = () => {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                   Загрузите фото для вашего профиля
                 </p>
-                <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                <label className="text-sm text-blue-600 hover:text-blue-700 font-medium cursor-pointer">
                   Изменить фото
-                </button>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarChange}
+                    className="hidden"
+                    disabled={isUploading}
+                  />
+                </label>
+                {uploadError && (
+                  <p className="text-sm text-red-500 mt-1">{uploadError}</p>
+                )}
               </div>
             </div>
 
@@ -120,7 +274,8 @@ export const ProfileTab = () => {
                 <input
                   type="tel"
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={handlePhoneChange}
+                  placeholder="+7 (XXX) XXX-XX-XX"
                   disabled={!isEditing}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-700 disabled:text-gray-500"
                 />
@@ -185,10 +340,15 @@ export const ProfileTab = () => {
             <div className="flex items-center space-x-4 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={handleSave}
-                className="flex items-center space-x-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200"
+                disabled={isSaving}
+                className="flex items-center space-x-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="h-4 w-4" />
-                <span>Сохранить изменения</span>
+                {isSaving ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                <span>{isSaving ? "Сохранение..." : "Сохранить изменения"}</span>
               </button>
               <button
                 onClick={handleCancel}

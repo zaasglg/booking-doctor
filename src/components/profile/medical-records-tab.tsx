@@ -1,25 +1,49 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { 
-  FileText, 
-  Plus, 
-  Calendar, 
-  User, 
-  Stethoscope, 
-  Pill, 
+import {
+  FileText,
+  Plus,
+  Calendar,
+  User,
+  Stethoscope,
+  Pill,
   Activity,
   Edit3,
   Trash2,
   Save,
-  X
+  X,
+  Search,
+  Filter,
+  ChevronRight,
+  ChevronLeft,
+  Clock,
+  Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
+interface Doctor {
+  id: string;
+  firstName: string;
+  lastName: string;
+  middleName: string;
+  specialty: string;
+  rating: number;
+  experience: number;
+  services: Service[];
+}
 
 interface MedicalRecord {
   id: string;
   date: string;
-  doctor: string;
+  doctorName: string;
   specialty: string;
   diagnosis: string;
   treatment: string;
@@ -73,7 +97,7 @@ export const MedicalRecordsTab = () => {
   const [showAddRecord, setShowAddRecord] = useState(false);
   const [newRecord, setNewRecord] = useState<Partial<MedicalRecord>>({
     date: new Date().toISOString().split('T')[0],
-    doctor: "",
+    doctorName: "",
     specialty: "",
     diagnosis: "",
     treatment: "",
@@ -81,69 +105,148 @@ export const MedicalRecordsTab = () => {
     notes: ""
   });
 
-  // Загрузка данных из localStorage
+  // Doctor Selection State
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1); // 1: Select Category, 2: Select Doctor, 3: Select Service, 4: Fill Details
+  const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Все");
+  const [loadingDoctors, setLoadingDoctors] = useState(false);
+
+  // Загрузка данных с сервера
   useEffect(() => {
-    if (user?.email) {
-      const savedRecords = localStorage.getItem(`medicalRecords_${user.email}`);
-      const savedVitals = localStorage.getItem(`vitalSigns_${user.email}`);
-      const savedAllergies = localStorage.getItem(`allergies_${user.email}`);
-      const savedConditions = localStorage.getItem(`chronicConditions_${user.email}`);
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const headers = { 'Authorization': `Bearer ${token}` };
 
-      if (savedRecords) setMedicalRecords(JSON.parse(savedRecords));
-      if (savedVitals) setVitalSigns(JSON.parse(savedVitals));
-      if (savedAllergies) setAllergies(JSON.parse(savedAllergies));
-      if (savedConditions) setChronicConditions(JSON.parse(savedConditions));
-    }
-  }, [user?.email]);
+        // Fetch records
+        const recordsRes = await fetch('/api/medical-records', { headers });
+        if (recordsRes.ok) {
+          setMedicalRecords(await recordsRes.json());
+        }
 
-  // Сохранение данных в localStorage
-  const saveToStorage = (key: string, data: unknown) => {
-    if (user?.email) {
-      localStorage.setItem(`${key}_${user.email}`, JSON.stringify(data));
+        // Fetch profile
+        const profileRes = await fetch('/api/health-profile', { headers });
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          setVitalSigns({
+            height: profile.height || '',
+            weight: profile.weight || '',
+            bloodPressure: profile.bloodPressure || '',
+            heartRate: profile.heartRate || '',
+            temperature: profile.temperature || '',
+            bloodType: profile.bloodType || '',
+          });
+          setAllergies(profile.allergies || { medications: [], food: [], environmental: [] });
+          setChronicConditions(profile.chronicConditions || { conditions: [], medications: [] });
+        }
+      } catch (error) {
+        console.error("Failed to load medical data", error);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // Fetch doctors when modal opens or component mounts
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      setLoadingDoctors(true);
+      try {
+        const res = await fetch('/api/doctors');
+        if (res.ok) {
+          setDoctors(await res.json());
+        }
+      } catch (err) {
+        console.error("Failed to fetch doctors", err);
+      } finally {
+        setLoadingDoctors(false);
+      }
+    };
+    fetchDoctors();
+  }, []);
+
+  const handleAddRecord = async () => {
+    if (newRecord.doctorName && newRecord.diagnosis) {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/medical-records', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(newRecord)
+        });
+
+        if (res.ok) {
+          const savedRecord = await res.json();
+          setMedicalRecords([savedRecord, ...medicalRecords]);
+          closeModal();
+        }
+      } catch (error) {
+        alert('Ошибка при сохранении записи');
+      }
     }
   };
 
-  const handleAddRecord = () => {
-    if (newRecord.doctor && newRecord.diagnosis) {
-      const record: MedicalRecord = {
-        id: Date.now().toString(),
-        date: newRecord.date || new Date().toISOString().split('T')[0],
-        doctor: newRecord.doctor || "",
-        specialty: newRecord.specialty || "",
-        diagnosis: newRecord.diagnosis || "",
-        treatment: newRecord.treatment || "",
-        medications: newRecord.medications || [],
-        notes: newRecord.notes || ""
-      };
+  const closeModal = () => {
+    setShowAddRecord(false);
+    setStep(1);
+    setSelectedDoctor(null);
+    setSelectedService(null);
+    setNewRecord({
+      date: new Date().toISOString().split('T')[0],
+      doctorName: "",
+      specialty: "",
+      diagnosis: "",
+      treatment: "",
+      medications: [],
+      notes: ""
+    });
+  };
 
-      const updatedRecords = [record, ...medicalRecords];
-      setMedicalRecords(updatedRecords);
-      saveToStorage("medicalRecords", updatedRecords);
-      
-      setNewRecord({
-        date: new Date().toISOString().split('T')[0],
-        doctor: "",
-        specialty: "",
-        diagnosis: "",
-        treatment: "",
-        medications: [],
-        notes: ""
+  const handleDeleteRecord = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить эту запись?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/medical-records?id=${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      setShowAddRecord(false);
+
+      if (res.ok) {
+        setMedicalRecords(medicalRecords.filter(record => record.id !== id));
+      }
+    } catch (error) {
+      alert('Ошибка удаления');
     }
   };
 
-  const handleDeleteRecord = (id: string) => {
-    const updatedRecords = medicalRecords.filter(record => record.id !== id);
-    setMedicalRecords(updatedRecords);
-    saveToStorage("medicalRecords", updatedRecords);
-  };
+  const handleSaveVitals = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/health-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          vitalSigns,
+          allergies,
+          chronicConditions
+        })
+      });
 
-  const handleSaveVitals = () => {
-    saveToStorage("vitalSigns", vitalSigns);
-    saveToStorage("allergies", allergies);
-    saveToStorage("chronicConditions", chronicConditions);
-    setIsEditing(false);
+      if (res.ok) {
+        setIsEditing(false);
+        alert('Данные сохранены');
+      }
+    } catch (error) {
+      alert('Ошибка сохранения');
+    }
   };
 
   const sections = [
@@ -152,6 +255,30 @@ export const MedicalRecordsTab = () => {
     { id: "vitals", label: "Показатели", icon: Stethoscope },
     { id: "medications", label: "Лекарства", icon: Pill }
   ];
+
+  const filteredDoctors = doctors.filter(doc => {
+    const matchesSearch = `${doc.firstName} ${doc.lastName} ${doc.specialty}`.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "Все" || doc.specialty === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const uniqueSpecialties = Array.from(new Set(doctors.map(d => d.specialty)));
+
+  const handleDoctorSelect = (doctor: Doctor) => {
+    setSelectedDoctor(doctor);
+    setStep(2);
+  };
+
+  const handleServiceSelect = (service: Service) => {
+    setSelectedService(service);
+    setNewRecord({
+      ...newRecord,
+      doctorName: `${selectedDoctor?.lastName} ${selectedDoctor?.firstName}`,
+      specialty: selectedDoctor?.specialty || "",
+      notes: `Услуга: ${service.name} (${service.price} ₸)` // Pre-fill notes with service info if desired
+    });
+    setStep(3);
+  };
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -251,7 +378,7 @@ export const MedicalRecordsTab = () => {
                       {record.diagnosis}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(record.date).toLocaleDateString()} • {record.doctor}
+                      {new Date(record.date).toLocaleDateString()} • {record.doctorName}
                     </p>
                   </div>
                 </div>
@@ -311,7 +438,7 @@ export const MedicalRecordsTab = () => {
                         </div>
                         <div>
                           <h4 className="font-medium text-gray-900 dark:text-white">
-                            {record.doctor}
+                            {record.doctorName}
                           </h4>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             {record.specialty} • {new Date(record.date).toLocaleDateString()}
@@ -325,7 +452,7 @@ export const MedicalRecordsTab = () => {
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <div>
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Диагноз:</span>
@@ -364,11 +491,18 @@ export const MedicalRecordsTab = () => {
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Добавить медицинскую запись
-                </h3>
+                <div className="flex items-center space-x-2">
+                  {step > 1 && (
+                    <button onClick={() => setStep(step - 1 as 1 | 2 | 3 | 4)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
+                      <ChevronLeft className="h-5 w-5 text-gray-500" />
+                    </button>
+                  )}
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {step === 1 ? "Выберите специальность" : step === 2 ? "Выберите врача" : step === 3 ? "Выберите услугу" : "Детали записи"}
+                  </h3>
+                </div>
                 <button
-                  onClick={() => setShowAddRecord(false)}
+                  onClick={closeModal}
                   className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   <X className="h-5 w-5" />
@@ -376,120 +510,256 @@ export const MedicalRecordsTab = () => {
               </div>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Дата посещения
-                  </label>
+            {/* Step 1: Select Category */}
+            {step === 1 && (
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Выберите направление</p>
+
+                {loadingDoctors ? (
+                  <div className="text-center py-8 text-gray-500">Загрузка специальностей...</div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {uniqueSpecialties.map((specialty) => (
+                      <button
+                        key={specialty}
+                        onClick={() => {
+                          setSelectedCategory(specialty);
+                          setStep(2);
+                        }}
+                        className="p-4 bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800 rounded-xl text-left transition-colors group"
+                      >
+                        <h4 className="font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                          {specialty}
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {doctors.filter(d => d.specialty === specialty).length} врачей
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 2: Select Doctor */}
+            {step === 2 && (
+              <div className="p-6 space-y-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                   <input
-                    type="date"
-                    value={newRecord.date}
-                    onChange={(e) => setNewRecord({ ...newRecord, date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
+                    type="text"
+                    placeholder={`Поиск ${selectedCategory ? 'врача- ' + selectedCategory.toLowerCase() : 'врача'}...`}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800"
                   />
                 </div>
+
+                <div className="flex items-center space-x-2 text-sm text-gray-500">
+                  <span>Выбрано:</span>
+                  <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full font-medium">
+                    {selectedCategory}
+                  </span>
+                </div>
+
+                <div className="space-y-3 h-[400px] overflow-y-auto pr-2">
+                  {filteredDoctors.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-gray-500">Врачи не найдены</div>
+                  ) : (
+                    filteredDoctors.map((doc) => {
+                      const minPrice = doc.services.length > 0 ? Math.min(...doc.services.map(s => s.price)) : 0;
+                      return (
+                        <div
+                          key={doc.id}
+                          onClick={() => handleDoctorSelect(doc)}
+                          className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md cursor-pointer transition-all bg-white dark:bg-gray-800"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                              {doc.firstName[0]}{doc.lastName[0]}
+                            </div>
+                            <div>
+                              <h4 className="font-semibold text-gray-900 dark:text-white">
+                                Доктор {doc.lastName} {doc.firstName[0]}. {doc.middleName ? doc.middleName[0] + '.' : ''}
+                              </h4>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">{doc.specialty}</p>
+                              <div className="flex items-center text-xs text-yellow-500 mt-1 space-x-2">
+                                <span className="flex items-center"><Star className="h-3 w-3 mr-1 fill-current" /> {doc.rating}</span>
+                                <span className="text-gray-400">• {doc.experience} лет опыта</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="block font-bold text-gray-900 dark:text-white">
+                              {minPrice > 0 ? `от ${minPrice.toLocaleString()} ₸` : "Нет цен"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Select Service */}
+            {step === 3 && selectedDoctor && (
+              <div className="p-6 space-y-4">
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg flex items-center space-x-3 mb-4">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                    {selectedDoctor.firstName[0]}{selectedDoctor.lastName[0]}
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900 dark:text-white">
+                      Доктор {selectedDoctor.lastName} {selectedDoctor.firstName}
+                    </h4>
+                    <p className="text-sm text-gray-500">{selectedDoctor.specialty}</p>
+                  </div>
+                </div>
+
+                <h4 className="font-medium text-gray-900 dark:text-white">Доступные услуги:</h4>
+                <div className="space-y-2">
+                  {selectedDoctor.services.map((service) => (
+                    <div
+                      key={service.id}
+                      onClick={() => handleServiceSelect(service)}
+                      className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors bg-white dark:bg-gray-800"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                          <Clock className="h-5 w-5 text-gray-500" />
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-gray-900 dark:text-white">{service.name}</h5>
+                          <p className="text-xs text-gray-500">{service.duration} мин</p>
+                        </div>
+                      </div>
+                      <span className="font-bold text-blue-600 dark:text-blue-400">
+                        {service.price.toLocaleString()} ₸
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Fill Final Details */}
+            {step === 4 && (
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Дата посещения
+                    </label>
+                    <input
+                      type="date"
+                      value={newRecord.date}
+                      onChange={(e) => setNewRecord({ ...newRecord, date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Врач
+                    </label>
+                    <input
+                      type="text"
+                      value={newRecord.doctorName}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Врач
+                    Специальность
                   </label>
                   <input
                     type="text"
-                    value={newRecord.doctor}
-                    onChange={(e) => setNewRecord({ ...newRecord, doctor: e.target.value })}
-                    placeholder="Имя врача"
+                    value={newRecord.specialty}
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Диагноз *
+                  </label>
+                  <textarea
+                    value={newRecord.diagnosis}
+                    onChange={(e) => setNewRecord({ ...newRecord, diagnosis: e.target.value })}
+                    placeholder="Диагноз или причина обращения"
+                    rows={3}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Специальность
-                </label>
-                <input
-                  type="text"
-                  value={newRecord.specialty}
-                  onChange={(e) => setNewRecord({ ...newRecord, specialty: e.target.value })}
-                  placeholder="Специальность врача"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Лечение
+                  </label>
+                  <textarea
+                    value={newRecord.treatment}
+                    onChange={(e) => setNewRecord({ ...newRecord, treatment: e.target.value })}
+                    placeholder="Назначенное лечение"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Диагноз *
-                </label>
-                <textarea
-                  value={newRecord.diagnosis}
-                  onChange={(e) => setNewRecord({ ...newRecord, diagnosis: e.target.value })}
-                  placeholder="Диагноз или причина обращения"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Препараты
+                  </label>
+                  <input
+                    type="text"
+                    value={newRecord.medications?.join(", ")}
+                    onChange={(e) => setNewRecord({
+                      ...newRecord,
+                      medications: e.target.value.split(",").map(med => med.trim()).filter(med => med)
+                    })}
+                    placeholder="Препараты через запятую"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Лечение
-                </label>
-                <textarea
-                  value={newRecord.treatment}
-                  onChange={(e) => setNewRecord({ ...newRecord, treatment: e.target.value })}
-                  placeholder="Назначенное лечение"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Заметки (Записана услуга: {selectedService?.name})
+                  </label>
+                  <textarea
+                    value={newRecord.notes}
+                    onChange={(e) => setNewRecord({ ...newRecord, notes: e.target.value })}
+                    placeholder="Дополнительные заметки"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Препараты
-                </label>
-                <input
-                  type="text"
-                  value={newRecord.medications?.join(", ")}
-                  onChange={(e) => setNewRecord({ 
-                    ...newRecord, 
-                    medications: e.target.value.split(",").map(med => med.trim()).filter(med => med) 
-                  })}
-                  placeholder="Препараты через запятую"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-                />
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                  <button
+                    onClick={closeModal}
+                    className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors duration-200"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={handleAddRecord}
+                    disabled={!newRecord.diagnosis}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition-colors duration-200"
+                  >
+                    Сохранить запись
+                  </button>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Заметки
-                </label>
-                <textarea
-                  value={newRecord.notes}
-                  onChange={(e) => setNewRecord({ ...newRecord, notes: e.target.value })}
-                  placeholder="Дополнительные заметки"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-                />
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
-              <button
-                onClick={() => setShowAddRecord(false)}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors duration-200"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={handleAddRecord}
-                disabled={!newRecord.doctor || !newRecord.diagnosis}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition-colors duration-200"
-              >
-                Добавить
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Existing Sections (Vitals, Medications) */}
       {activeSection === "vitals" && (
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-6">
@@ -511,7 +781,7 @@ export const MedicalRecordsTab = () => {
             {/* Основные показатели */}
             <div className="space-y-4">
               <h4 className="font-medium text-gray-900 dark:text-white">Основные показатели</h4>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -611,7 +881,7 @@ export const MedicalRecordsTab = () => {
             {/* Аллергии */}
             <div className="space-y-4">
               <h4 className="font-medium text-gray-900 dark:text-white">Аллергии</h4>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Лекарственные препараты
@@ -619,9 +889,9 @@ export const MedicalRecordsTab = () => {
                 <input
                   type="text"
                   value={allergies.medications.join(", ")}
-                  onChange={(e) => setAllergies({ 
-                    ...allergies, 
-                    medications: e.target.value.split(",").map(item => item.trim()).filter(item => item) 
+                  onChange={(e) => setAllergies({
+                    ...allergies,
+                    medications: e.target.value.split(",").map(item => item.trim()).filter(item => item)
                   })}
                   disabled={!isEditing}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700"
@@ -636,9 +906,9 @@ export const MedicalRecordsTab = () => {
                 <input
                   type="text"
                   value={allergies.food.join(", ")}
-                  onChange={(e) => setAllergies({ 
-                    ...allergies, 
-                    food: e.target.value.split(",").map(item => item.trim()).filter(item => item) 
+                  onChange={(e) => setAllergies({
+                    ...allergies,
+                    food: e.target.value.split(",").map(item => item.trim()).filter(item => item)
                   })}
                   disabled={!isEditing}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700"
@@ -653,9 +923,9 @@ export const MedicalRecordsTab = () => {
                 <input
                   type="text"
                   value={allergies.environmental.join(", ")}
-                  onChange={(e) => setAllergies({ 
-                    ...allergies, 
-                    environmental: e.target.value.split(",").map(item => item.trim()).filter(item => item) 
+                  onChange={(e) => setAllergies({
+                    ...allergies,
+                    environmental: e.target.value.split(",").map(item => item.trim()).filter(item => item)
                   })}
                   disabled={!isEditing}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700"
@@ -666,7 +936,7 @@ export const MedicalRecordsTab = () => {
               {/* Хронические заболевания */}
               <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                 <h4 className="font-medium text-gray-900 dark:text-white mb-4">Хронические заболевания</h4>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Заболевания
@@ -674,9 +944,9 @@ export const MedicalRecordsTab = () => {
                   <input
                     type="text"
                     value={chronicConditions.conditions.join(", ")}
-                    onChange={(e) => setChronicConditions({ 
-                      ...chronicConditions, 
-                      conditions: e.target.value.split(",").map(item => item.trim()).filter(item => item) 
+                    onChange={(e) => setChronicConditions({
+                      ...chronicConditions,
+                      conditions: e.target.value.split(",").map(item => item.trim()).filter(item => item)
                     })}
                     disabled={!isEditing}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700"
@@ -691,9 +961,9 @@ export const MedicalRecordsTab = () => {
                   <input
                     type="text"
                     value={chronicConditions.medications.join(", ")}
-                    onChange={(e) => setChronicConditions({ 
-                      ...chronicConditions, 
-                      medications: e.target.value.split(",").map(item => item.trim()).filter(item => item) 
+                    onChange={(e) => setChronicConditions({
+                      ...chronicConditions,
+                      medications: e.target.value.split(",").map(item => item.trim()).filter(item => item)
                     })}
                     disabled={!isEditing}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700"
@@ -716,7 +986,7 @@ export const MedicalRecordsTab = () => {
             {/* Текущие препараты */}
             <div className="space-y-4">
               <h4 className="font-medium text-gray-900 dark:text-white">Текущие препараты</h4>
-              
+
               {chronicConditions.medications.length > 0 ? (
                 <div className="space-y-3">
                   {chronicConditions.medications.map((medication: string, index: number) => (
@@ -738,7 +1008,7 @@ export const MedicalRecordsTab = () => {
             {/* Аллергии на препараты */}
             <div className="space-y-4">
               <h4 className="font-medium text-gray-900 dark:text-white">Аллергии на препараты</h4>
-              
+
               {allergies.medications.length > 0 ? (
                 <div className="space-y-3">
                   {allergies.medications.map((medication: string, index: number) => (
@@ -761,7 +1031,7 @@ export const MedicalRecordsTab = () => {
           {/* История назначений */}
           <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
             <h4 className="font-medium text-gray-900 dark:text-white mb-4">История назначений</h4>
-            
+
             {medicalRecords.filter(record => record.medications.length > 0).length > 0 ? (
               <div className="space-y-4">
                 {medicalRecords
@@ -776,7 +1046,7 @@ export const MedicalRecordsTab = () => {
                           </span>
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {record.doctor}
+                          {record.doctorName}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">

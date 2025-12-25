@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { Calendar, Clock, User, MapPin, Phone, Plus, Filter, X, Search } from "lucide-react";
+import { Calendar, Clock, User, MapPin, Phone, Plus, Filter, X, Search, ChevronLeft, Star, Heart } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { cn } from "@/lib/utils";
 
 interface Appointment {
   id: string;
@@ -13,127 +14,38 @@ interface Appointment {
   clinic: string;
   address: string;
   phone: string;
+  serviceName?: string;
+  price?: number;
+}
+
+interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
 }
 
 interface Doctor {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
+  middleName: string;
   specialty: string;
-  clinic: string;
-  address: string;
-  phone: string;
   rating: number;
   experience: number;
-  price: number;
-  availableSlots: string[];
+  services: Service[];
+  availableSlots?: string[]; // We might mock this or fetch real slots later
 }
 
-const mockDoctors: Doctor[] = [
-  {
-    id: "1",
-    name: "Доктор Иванов А.И.",
-    specialty: "Терапевт",
-    clinic: "Медицинский центр \"Здоровье\"",
-    address: "ул. Абая, 123",
-    phone: "+7 (777) 123-45-67",
-    rating: 4.8,
-    experience: 15,
-    price: 8000,
-    availableSlots: ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
-  },
-  {
-    id: "2",
-    name: "Доктор Петрова М.С.",
-    specialty: "Кардиолог",
-    clinic: "Кардиологический центр",
-    address: "пр. Достык, 456",
-    phone: "+7 (777) 987-65-43",
-    rating: 4.9,
-    experience: 20,
-    price: 12000,
-    availableSlots: ["08:00", "09:30", "11:00", "13:30", "15:00", "16:30"]
-  },
-  {
-    id: "3",
-    name: "Доктор Сидоров В.П.",
-    specialty: "Невролог",
-    clinic: "Неврологическая клиника",
-    address: "ул. Сатпаева, 789",
-    phone: "+7 (777) 555-44-33",
-    rating: 4.7,
-    experience: 12,
-    price: 10000,
-    availableSlots: ["09:15", "10:45", "12:15", "14:30", "16:00", "17:30"]
-  },
-  {
-    id: "4",
-    name: "Доктор Казымова А.Б.",
-    specialty: "Дерматолог",
-    clinic: "Клиника красоты и здоровья",
-    address: "ул. Толе би, 321",
-    phone: "+7 (777) 111-22-33",
-    rating: 4.6,
-    experience: 8,
-    price: 9000,
-    availableSlots: ["10:00", "11:30", "13:00", "14:30", "16:00", "17:00"]
-  },
-  {
-    id: "5",
-    name: "Доктор Омаров Т.К.",
-    specialty: "Ортопед",
-    clinic: "Центр травматологии",
-    address: "пр. Аль-Фараби, 654",
-    phone: "+7 (777) 444-55-66",
-    rating: 4.8,
-    experience: 18,
-    price: 11000,
-    availableSlots: ["08:30", "10:00", "11:30", "13:00", "15:30", "17:00"]
-  }
-];
+const MOCK_SLOTS = ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00"];
 
-const mockAppointments: Appointment[] = [
-  {
-    id: "1",
-    doctorName: "Доктор Иванов А.И.",
-    specialty: "Терапевт",
-    date: "2024-11-15",
-    time: "10:00",
-    status: "upcoming",
-    clinic: "Медицинский центр \"Здоровье\"",
-    address: "ул. Абая, 123",
-    phone: "+7 (777) 123-45-67",
-  },
-  {
-    id: "2",
-    doctorName: "Доктор Петрова М.С.",
-    specialty: "Кардиолог",
-    date: "2024-10-28",
-    time: "14:30",
-    status: "completed",
-    clinic: "Кардиологический центр",
-    address: "пр. Достык, 456",
-    phone: "+7 (777) 987-65-43",
-  },
-  {
-    id: "3",
-    doctorName: "Доктор Сидоров В.П.",
-    specialty: "Невролог",
-    date: "2024-10-20",
-    time: "09:15",
-    status: "cancelled",
-    clinic: "Неврологическая клиника",
-    address: "ул. Сатпаева, 789",
-    phone: "+7 (777) 555-44-33",
-  },
-];
-
-const statusColors = {
+const statusColors: Record<string, string> = {
   upcoming: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400",
   completed: "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400",
   cancelled: "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400",
 };
 
-const statusLabels = {
+const statusLabels: Record<string, string> = {
   upcoming: "Предстоящий",
   completed: "Завершен",
   cancelled: "Отменен",
@@ -144,82 +56,172 @@ export const AppointmentsTab = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [filter, setFilter] = useState<"all" | "upcoming" | "completed" | "cancelled">("all");
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [doctors] = useState<Doctor[]>(mockDoctors);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedSpecialty, setSelectedSpecialty] = useState("");
+
+  // Wizard State
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loadingDoctors, setLoadingDoctors] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1); // 1: Select Category, 2: Select Doctor, 3: Select Service, 4: Select Date/Time & Confirm
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
-  const [bookingStep, setBookingStep] = useState<"search" | "select-time" | "confirm">("search");
+  const [unavailableSlots, setUnavailableSlots] = useState<string[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
 
-  // Загрузка записей из localStorage
+  // Search/Filter State for Wizard
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Only for Step 2+ filtering if needed within a category, or just for search
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null);
+
+  // Load appointments
   useEffect(() => {
-    if (user?.email) {
-      const savedAppointments = localStorage.getItem(`appointments_${user.email}`);
-      if (savedAppointments) {
-        setAppointments(JSON.parse(savedAppointments));
-      } else {
-        setAppointments(mockAppointments);
+    const fetchAppointments = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/appointments', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          setAppointments(await res.json());
+        }
+      } catch (error) {
+        console.error("Failed to load appointments", error);
       }
-    }
-  }, [user?.email]);
+    };
+    fetchAppointments();
+  }, []);
 
-  // Сохранение записей в localStorage
-  const saveAppointments = (newAppointments: Appointment[]) => {
-    if (user?.email) {
-      localStorage.setItem(`appointments_${user.email}`, JSON.stringify(newAppointments));
-      setAppointments(newAppointments);
+  // Load doctors
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      setLoadingDoctors(true);
+      try {
+        const res = await fetch('/api/doctors');
+        if (res.ok) {
+          setDoctors(await res.json());
+        }
+
+        // Also fetch favorites to mark them
+        const token = localStorage.getItem('token');
+        if (token) {
+          const favRes = await fetch('/api/favorites', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (favRes.ok) {
+            const favs = await favRes.json();
+            setFavoriteIds(favs.map((d: any) => d.id));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch doctors", err);
+      } finally {
+        setLoadingDoctors(false);
+      }
+    };
+    fetchDoctors();
+  }, []);
+
+  const handleToggleFavorite = async (e: React.MouseEvent, doctorId: string) => {
+    e.stopPropagation(); // Prevent card click
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ doctorId })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.isFavorite) {
+          setFavoriteIds([...favoriteIds, doctorId]);
+        } else {
+          setFavoriteIds(favoriteIds.filter(id => id !== doctorId));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to toggle favorite", err);
     }
   };
+
+  // UseEffect to fetch availability when doctor and date are selected
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      if (selectedDoctor && selectedDate) {
+        // Reset time when date changes
+        setSelectedTime("");
+
+        try {
+          const res = await fetch(`/api/appointments/availability?doctorId=${selectedDoctor.id}&date=${selectedDate}`);
+          if (res.ok) {
+            const data = await res.json();
+            setUnavailableSlots(data.unavailableSlots || []);
+          }
+        } catch (error) {
+          console.error("Failed to fetch availability", error);
+        }
+      } else {
+        setUnavailableSlots([]);
+      }
+    };
+    fetchAvailability();
+  }, [selectedDoctor, selectedDate]);
 
   const filteredAppointments = appointments.filter(
     (appointment) => filter === "all" || appointment.status === filter
   );
 
-  const specialties = [...new Set(doctors.map(doctor => doctor.specialty))];
+  const uniqueSpecialties = Array.from(new Set(doctors.map(d => d.specialty)));
 
-  const filteredDoctors = doctors.filter(doctor => {
-    const matchesSearch = doctor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      doctor.specialty.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSpecialty = !selectedSpecialty || doctor.specialty === selectedSpecialty;
+  const filteredDoctors = doctors.filter(doc => {
+    const matchesSearch = `${doc.firstName} ${doc.lastName} ${doc.specialty}`.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSpecialty = selectedSpecialty ? doc.specialty === selectedSpecialty : true;
     return matchesSearch && matchesSpecialty;
   });
 
-  const handleBookAppointment = () => {
-    if (!selectedDoctor || !selectedDate || !selectedTime) return;
+  const handleBookAppointment = async () => {
+    if (!selectedDoctor || !selectedService || !selectedDate || !selectedTime) return;
 
-    const newAppointment: Appointment = {
-      id: Date.now().toString(),
-      doctorName: selectedDoctor.name,
-      specialty: selectedDoctor.specialty,
-      date: selectedDate,
-      time: selectedTime,
-      status: "upcoming",
-      clinic: selectedDoctor.clinic,
-      address: selectedDoctor.address,
-      phone: selectedDoctor.phone,
-    };
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/appointments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          doctorId: selectedDoctor.id,
+          serviceId: selectedService.id,
+          date: selectedDate,
+          time: selectedTime
+        })
+      });
 
-    const updatedAppointments = [newAppointment, ...appointments];
-    saveAppointments(updatedAppointments);
-
-    // Сброс состояния
-    setShowBookingModal(false);
-    setBookingStep("search");
-    setSelectedDoctor(null);
-    setSelectedDate("");
-    setSelectedTime("");
-    setSearchTerm("");
-    setSelectedSpecialty("");
+      if (res.ok) {
+        const newAppointment = await res.json();
+        setAppointments([newAppointment, ...appointments]);
+        closeModal();
+      }
+    } catch (error) {
+      alert('Ошибка при создании записи');
+    }
   };
 
-  const handleCancelAppointment = (appointmentId: string) => {
-    const updatedAppointments = appointments.map(appointment =>
-      appointment.id === appointmentId
-        ? { ...appointment, status: "cancelled" as const }
-        : appointment
-    );
-    saveAppointments(updatedAppointments);
+
+  const closeModal = () => {
+    setShowBookingModal(false);
+    setStep(1);
+    setSelectedDoctor(null);
+    setSelectedService(null);
+    setSelectedDate("");
+    setSelectedTime("");
+    setSearchQuery("");
+    setSelectedSpecialty(null);
   };
 
   const getMinDate = () => {
@@ -233,6 +235,37 @@ export const AppointmentsTab = () => {
     maxDate.setDate(maxDate.getDate() + 30);
     return maxDate.toISOString().split('T')[0];
   };
+
+  const handleCancelAppointment = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите отменить эту запись?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/appointments', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id,
+          status: 'cancelled'
+        })
+      });
+
+      if (res.ok) {
+        // Update local state
+        setAppointments(appointments.map(apt =>
+          apt.id === id ? { ...apt, status: 'cancelled' } : apt
+        ));
+      } else {
+        alert('Ошибка при отмене записи');
+      }
+    } catch (error) {
+      alert('Ошибка при отмене записи');
+    }
+  };
+
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -317,6 +350,12 @@ export const AppointmentsTab = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
+                          {appointment.serviceName && (
+                            <div className="flex items-center space-x-2 text-sm text-gray-900 dark:text-white font-medium">
+                              <Clock className="h-4 w-4 text-gray-500" />
+                              <span>{appointment.serviceName} {appointment.price ? `(${appointment.price} ₸)` : ''}</span>
+                            </div>
+                          )}
                           <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
                             <User className="h-4 w-4" />
                             <span>{appointment.specialty}</span>
@@ -348,32 +387,18 @@ export const AppointmentsTab = () => {
                               <div>{appointment.address}</div>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                            <Phone className="h-4 w-4" />
-                            <span>{appointment.phone}</span>
-                          </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Actions */}
                     <div className="flex flex-col space-y-2 ml-4">
-                      {appointment.status === "upcoming" && (
-                        <>
-                          <button className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200">
-                            Изменить
-                          </button>
-                          <button
-                            onClick={() => handleCancelAppointment(appointment.id)}
-                            className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors duration-200"
-                          >
-                            Отменить
-                          </button>
-                        </>
-                      )}
-                      {appointment.status === "completed" && (
-                        <button className="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 text-white rounded transition-colors duration-200">
-                          Отзыв
+                      {appointment.status === 'upcoming' && (
+                        <button
+                          onClick={() => handleCancelAppointment(appointment.id)}
+                          className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-red-200 dark:border-red-900/30"
+                        >
+                          Отменить
                         </button>
                       )}
                     </div>
@@ -384,28 +409,30 @@ export const AppointmentsTab = () => {
           )}
         </div>
       </div>
+      {/* Modal code remains the same... needs to be explicitly included or just let the rest be implicit? The tool replaces until the end line... I must include the rest of the component or be careful with ranges.
+     The user's file is large (543 lines). I should target the range from handleBookAppointment end to the bottom of the list rendering, but wait...
+     I'll just replace the rendering part of the component to include the handler and the button.
+  */}
+
 
       {/* Модальное окно записи к врачу */}
       {showBookingModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-gray-900 rounded-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto">
             <div className="p-4 border-b border-gray-100 dark:border-gray-800">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-medium text-gray-900 dark:text-white">
-                  {bookingStep === "search" && "Выберите врача"}
-                  {bookingStep === "select-time" && "Выберите время"}
-                  {bookingStep === "confirm" && "Подтверждение"}
-                </h3>
+                <div className="flex items-center space-x-2">
+                  {step > 1 && (
+                    <button onClick={() => setStep(step - 1 as 1 | 2 | 3 | 4)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
+                      <ChevronLeft className="h-5 w-5 text-gray-500" />
+                    </button>
+                  )}
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {step === 1 ? "Выберите специальность" : step === 2 ? "Выберите врача" : step === 3 ? "Выберите услугу" : "Детали записи"}
+                  </h3>
+                </div>
                 <button
-                  onClick={() => {
-                    setShowBookingModal(false);
-                    setBookingStep("search");
-                    setSelectedDoctor(null);
-                    setSelectedDate("");
-                    setSelectedTime("");
-                    setSearchTerm("");
-                    setSelectedSpecialty("");
-                  }}
+                  onClick={closeModal}
                   className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
                   <X className="h-4 w-4" />
@@ -414,92 +441,150 @@ export const AppointmentsTab = () => {
             </div>
 
             <div className="p-4">
-              {bookingStep === "search" && (
+              {step === 1 && (
                 <div className="space-y-4">
-                  {/* Поиск */}
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Выберите направление для записи к врачу</p>
+
+                  {loadingDoctors ? (
+                    <div className="text-center py-8 text-gray-500">Загрузка специальностей...</div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {uniqueSpecialties.map((specialty) => (
+                        <button
+                          key={specialty}
+                          onClick={() => {
+                            setSelectedSpecialty(specialty);
+                            setStep(2);
+                          }}
+                          className="p-4 bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800 rounded-xl text-left transition-colors group"
+                        >
+                          <h4 className="font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                            {specialty}
+                          </h4>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {doctors.filter(d => d.specialty === specialty).length} врачей
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="space-y-4">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Поиск врача..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
+                      placeholder={`Поиск ${selectedSpecialty ? 'врача- ' + selectedSpecialty.toLowerCase() : 'врача'}...`}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 dark:text-white"
                     />
                   </div>
 
-                  {/* Фильтр специальностей */}
-                  <div className="flex gap-2 flex-wrap">
-                    <button
-                      onClick={() => setSelectedSpecialty("")}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${!selectedSpecialty
-                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400"
-                        }`}
-                    >
-                      Все
-                    </button>
-                    {specialties.map((specialty) => (
-                      <button
-                        key={specialty}
-                        onClick={() => setSelectedSpecialty(specialty)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${selectedSpecialty === specialty
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400"
-                          }`}
-                      >
-                        {specialty}
-                      </button>
-                    ))}
+                  <div className="flex items-center space-x-2 text-sm text-gray-500">
+                    <span>Выбрано:</span>
+                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full font-medium">
+                      {selectedSpecialty}
+                    </span>
                   </div>
 
-                  {/* Список врачей */}
-                  <div className="space-y-3 max-h-80 overflow-y-auto">
-                    {filteredDoctors.map((doctor) => (
-                      <div
-                        key={doctor.id}
-                        className="border-0 bg-gray-50 dark:bg-gray-800 rounded-lg p-4 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
-                        onClick={() => {
-                          setSelectedDoctor(doctor);
-                          setBookingStep("select-time");
-                        }}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-white mb-1">
-                              {doctor.name}
-                            </h4>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                              {doctor.specialty}
-                            </p>
-                            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                              <span>★ {doctor.rating}</span>
-                              <span>{doctor.experience} лет</span>
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+                    {filteredDoctors.length === 0 ? (
+                      <div className="flex items-center justify-center p-8 text-gray-500">Врачи не найдены</div>
+                    ) : (
+                      filteredDoctors.map((doc) => {
+                        const minPrice = doc.services.length > 0 ? Math.min(...doc.services.map(s => s.price)) : 0;
+                        return (
+                          <div
+                            key={doc.id}
+                            onClick={() => {
+                              setSelectedDoctor(doc);
+                              setStep(3);
+                            }}
+                            className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md cursor-pointer transition-all bg-white dark:bg-gray-800"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                                {doc.firstName[0]}{doc.lastName[0]}
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-900 dark:text-white">
+                                  Доктор {doc.lastName} {doc.firstName[0]}.
+                                </h4>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">{doc.specialty}</p>
+                                <div className="flex items-center text-xs text-yellow-500 mt-1 space-x-2">
+                                  <span className="flex items-center"><Star className="h-3 w-3 mr-1 fill-current" /> {doc.rating}</span>
+                                  <span className="text-gray-400">• {doc.experience} лет опыта</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="block font-bold text-gray-900 dark:text-white">
+                                {minPrice > 0 ? `от ${minPrice.toLocaleString()} ₸` : "Нет цен"}
+                              </span>
+                              <button
+                                onClick={(e) => handleToggleFavorite(e, doc.id)}
+                                className="p-2 mt-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors inline-block"
+                              >
+                                <Heart className={cn("h-5 w-5", favoriteIds.includes(doc.id) ? "fill-red-500 text-red-500" : "")} />
+                              </button>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-semibold text-gray-900 dark:text-white">
-                              {doctor.price.toLocaleString()} ₸
-                            </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && selectedDoctor && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg flex items-center space-x-3 mb-4">
+                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                      {selectedDoctor.firstName[0]}{selectedDoctor.lastName[0]}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white">
+                        Доктор {selectedDoctor.lastName} {selectedDoctor.firstName}
+                      </h4>
+                      <p className="text-sm text-gray-500">{selectedDoctor.specialty}</p>
+                    </div>
+                  </div>
+
+                  <h4 className="font-medium text-gray-900 dark:text-white">Доступные услуги:</h4>
+                  <div className="space-y-2">
+                    {selectedDoctor.services.map((service) => (
+                      <div
+                        key={service.id}
+                        onClick={() => {
+                          setSelectedService(service);
+                          setStep(4);
+                        }}
+                        className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors bg-white dark:bg-gray-800"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                            <Clock className="h-5 w-5 text-gray-500" />
+                          </div>
+                          <div>
+                            <h5 className="font-medium text-gray-900 dark:text-white">{service.name}</h5>
+                            <p className="text-xs text-gray-500">{service.duration} мин</p>
                           </div>
                         </div>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">
+                          {service.price.toLocaleString()} ₸
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {bookingStep === "select-time" && selectedDoctor && (
+              {step === 4 && selectedDoctor && selectedService && (
                 <div className="space-y-4">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                    <h4 className="font-medium text-gray-900 dark:text-white text-sm">
-                      {selectedDoctor.name}
-                    </h4>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {selectedDoctor.specialty}
-                    </p>
-                  </div>
-
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -511,7 +596,7 @@ export const AppointmentsTab = () => {
                         onChange={(e) => setSelectedDate(e.target.value)}
                         min={getMinDate()}
                         max={getMaxDate()}
-                        className="w-full px-3 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white"
                       />
                     </div>
 
@@ -520,75 +605,48 @@ export const AppointmentsTab = () => {
                         Время
                       </label>
                       <div className="grid grid-cols-4 gap-2">
-                        {selectedDoctor.availableSlots.map((slot) => (
-                          <button
-                            key={slot}
-                            onClick={() => setSelectedTime(slot)}
-                            className={`px-3 py-2 text-xs rounded-lg transition-colors ${selectedTime === slot
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                              }`}
-                          >
-                            {slot}
-                          </button>
-                        ))}
+                        {MOCK_SLOTS.map((slot) => {
+                          const isUnavailable = unavailableSlots.includes(slot);
+                          return (
+                            <button
+                              key={slot}
+                              onClick={() => !isUnavailable && setSelectedTime(slot)}
+                              disabled={isUnavailable}
+                              className={`px-3 py-2 text-xs rounded-lg transition-colors border ${selectedTime === slot
+                                ? "bg-blue-600 text-white border-blue-600"
+                                : isUnavailable
+                                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed decoration-slice"
+                                  : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 dark:border-gray-700"
+                                }`}
+                            >
+                              {slot}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex justify-between pt-2">
-                    <button
-                      onClick={() => setBookingStep("search")}
-                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      Назад
-                    </button>
-                    <button
-                      onClick={() => setBookingStep("confirm")}
-                      disabled={!selectedDate || !selectedTime}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg text-sm"
-                    >
-                      Далее
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {bookingStep === "confirm" && selectedDoctor && (
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Врач</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{selectedDoctor.name}</span>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mt-4 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Услуга:</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedService.name}</span>
                     </div>
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Дата</span>
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        {new Date(selectedDate).toLocaleDateString("ru-RU")}
-                      </span>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Врач:</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedDoctor.lastName} {selectedDoctor.firstName}</span>
                     </div>
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Время</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{selectedTime}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Стоимость</span>
-                      <span className="font-semibold text-blue-600 dark:text-blue-400">
-                        {selectedDoctor.price.toLocaleString()} ₸
-                      </span>
+                    <div className="flex justify-between font-bold pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <span className="text-gray-900 dark:text-white">Итого:</span>
+                      <span className="text-blue-600 dark:text-blue-400">{selectedService.price.toLocaleString()} ₸</span>
                     </div>
                   </div>
 
-                  <div className="flex justify-between pt-2">
-                    <button
-                      onClick={() => setBookingStep("select-time")}
-                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      Назад
-                    </button>
+                  <div className="flex justify-end pt-2">
                     <button
                       onClick={handleBookAppointment}
-                      className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"
+                      disabled={!selectedDate || !selectedTime}
+                      className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium"
                     >
                       Подтвердить запись
                     </button>

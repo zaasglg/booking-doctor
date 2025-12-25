@@ -170,6 +170,9 @@ export const PaymentsTab = () => {
     const [showAddMethod, setShowAddMethod] = useState(false);
     const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
     const [previewReceipt, setPreviewReceipt] = useState<Payment | null>(null);
+    const [showPayModal, setShowPayModal] = useState(false);
+    const [selectedPaymentForPay, setSelectedPaymentForPay] = useState<Payment | null>(null);
+    const [selectedMethodId, setSelectedMethodId] = useState<string>("");
     const [newMethod, setNewMethod] = useState({
         type: "card" as "card" | "insurance",
         name: "",
@@ -179,52 +182,163 @@ export const PaymentsTab = () => {
         holderName: ""
     });
 
-    // Загрузка платежей из localStorage
-    useEffect(() => {
-        if (user?.email) {
-            const savedPayments = localStorage.getItem(`payments_${user.email}`);
-            if (savedPayments) {
-                setPayments(JSON.parse(savedPayments));
+    const handlePayClick = (payment: Payment) => {
+        setSelectedPaymentForPay(payment);
+        // Select default method if available
+        const defaultMethod = paymentMethods.find(m => m.isDefault);
+        if (defaultMethod) {
+            setSelectedMethodId(defaultMethod.id);
+        } else if (paymentMethods.length > 0) {
+            setSelectedMethodId(paymentMethods[0].id);
+        }
+        setShowPayModal(true);
+    };
+
+    const handleProcessPayment = async () => {
+        if (!selectedPaymentForPay || !selectedMethodId) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payments/pay', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    paymentId: selectedPaymentForPay.id,
+                    paymentMethodId: selectedMethodId
+                })
+            });
+
+            if (res.ok) {
+                alert("Оплата прошла успешно!");
+                setShowPayModal(false);
+                setSelectedPaymentForPay(null);
+                // Refresh payments
+                const fetchPayments = async () => {
+                    try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch('/api/payments', {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (res.ok) {
+                            setPayments(await res.json());
+                        }
+                    } catch (error) { console.error(error); }
+                };
+                fetchPayments();
             } else {
-                setPayments(mockPayments);
+                alert("Ошибка оплаты");
             }
-        }
-    }, [user?.email]);
-
-    // Загрузка способов оплаты из localStorage
-    useEffect(() => {
-        if (user?.email) {
-            const savedMethods = localStorage.getItem(`paymentMethods_${user.email}`);
-            if (savedMethods) {
-                setPaymentMethods(JSON.parse(savedMethods));
-            }
-        }
-    }, [user?.email]);
-
-    // Сохранение способов оплаты в localStorage
-    const savePaymentMethods = (methods: PaymentMethod[]) => {
-        if (user?.email) {
-            localStorage.setItem(`paymentMethods_${user.email}`, JSON.stringify(methods));
-            setPaymentMethods(methods);
+        } catch (error) {
+            console.error("Payment failed", error);
+            alert("Ошибка сети");
         }
     };
 
-    // Добавление нового способа оплаты
-    const handleAddMethod = () => {
-        if (!newMethod.name || !newMethod.number) return;
-
-        const method: PaymentMethod = {
-            id: Date.now().toString(),
-            type: newMethod.type,
-            name: newMethod.name,
-            number: newMethod.type === "card"
-                ? `**** **** **** ${newMethod.number.slice(-4)}`
-                : newMethod.number,
-            isDefault: paymentMethods.length === 0
+    // Загрузка платежей из API
+    useEffect(() => {
+        const fetchPayments = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/payments', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setPayments(data);
+                }
+            } catch (error) {
+                console.error("Failed to load payments", error);
+            }
         };
 
-        const updatedMethods = [...paymentMethods, method];
-        savePaymentMethods(updatedMethods);
+        if (user) {
+            fetchPayments();
+        }
+    }, [user]);
+
+    // Загрузка способов оплаты из API
+    const fetchPaymentMethods = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payment-methods', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setPaymentMethods(await res.json());
+            }
+        } catch (error) {
+            console.error("Failed to load payment methods", error);
+        }
+    };
+
+    useEffect(() => {
+        if (user) {
+            fetchPaymentMethods();
+        }
+    }, [user]);
+
+    // Удалена функция savePaymentMethods, так как API делает это напрямую
+
+
+    // Input Masking Helpers
+    const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let value = e.target.value.replace(/\D/g, "");
+        if (value.length > 16) value = value.slice(0, 16);
+        const formatted = value.replace(/(\d{4})(?=\d)/g, "$1 ");
+        setNewMethod({ ...newMethod, number: formatted });
+    };
+
+    const handleExpiryDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let value = e.target.value.replace(/\D/g, "");
+        if (value.length > 4) value = value.slice(0, 4);
+        if (value.length >= 2) {
+            value = value.slice(0, 2) + "/" + value.slice(2);
+        }
+        setNewMethod({ ...newMethod, expiryDate: value });
+    };
+
+    const handleCVVChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let value = e.target.value.replace(/\D/g, "");
+        if (value.length > 3) value = value.slice(0, 3);
+        setNewMethod({ ...newMethod, cvv: value });
+    };
+
+    const handleHolderNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let value = e.target.value.toUpperCase();
+        setNewMethod({ ...newMethod, holderName: value });
+    };
+
+    // Добавление нового способа оплаты
+    const handleAddMethod = async () => {
+        if (!newMethod.name || !newMethod.number) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payment-methods', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    type: newMethod.type,
+                    name: newMethod.name,
+                    number: newMethod.type === "card"
+                        ? `**** **** **** ${newMethod.number.slice(-4)}` // Simplified check for now
+                        : newMethod.number,
+                    isDefault: paymentMethods.length === 0
+                })
+            });
+
+            if (res.ok) {
+                fetchPaymentMethods();
+            }
+        } catch (error) {
+            console.error("Failed to add payment method", error);
+        }
 
         // Сброс формы
         setNewMethod({
@@ -239,27 +353,41 @@ export const PaymentsTab = () => {
     };
 
     // Удаление способа оплаты
-    const handleDeleteMethod = (methodId: string) => {
-        const methodToDelete = paymentMethods.find(m => m.id === methodId);
-        if (!methodToDelete) return;
-
-        let updatedMethods = paymentMethods.filter(m => m.id !== methodId);
-
-        // Если удаляем способ по умолчанию и есть другие способы, делаем первый по умолчанию
-        if (methodToDelete.isDefault && updatedMethods.length > 0) {
-            updatedMethods[0].isDefault = true;
+    const handleDeleteMethod = async (methodId: string) => {
+        if (!confirm('Вы уверены?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/payment-methods?id=${methodId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                fetchPaymentMethods();
+            }
+        } catch (error) {
+            console.error("Failed to delete payment method", error);
         }
-
-        savePaymentMethods(updatedMethods);
     };
 
     // Установка способа оплаты по умолчанию
-    const handleSetDefault = (methodId: string) => {
-        const updatedMethods = paymentMethods.map(method => ({
-            ...method,
-            isDefault: method.id === methodId
-        }));
-        savePaymentMethods(updatedMethods);
+    // Установка способа оплаты по умолчанию
+    const handleSetDefault = async (methodId: string) => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payment-methods', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ id: methodId, isDefault: true })
+            });
+            if (res.ok) {
+                fetchPaymentMethods();
+            }
+        } catch (error) {
+            console.error("Failed to set default payment method", error);
+        }
     };
 
     // Редактирование способа оплаты
@@ -277,35 +405,48 @@ export const PaymentsTab = () => {
     };
 
     // Сохранение изменений способа оплаты
-    const handleUpdateMethod = () => {
+    // Сохранение изменений способа оплаты
+    const handleUpdateMethod = async () => {
         if (!editingMethod || !newMethod.name || !newMethod.number) return;
 
-        const updatedMethods = paymentMethods.map(method =>
-            method.id === editingMethod.id
-                ? {
-                    ...method,
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payment-methods', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    id: editingMethod.id,
                     name: newMethod.name,
                     number: newMethod.type === "card"
                         ? `**** **** **** ${newMethod.number.slice(-4)}`
                         : newMethod.number,
                     type: newMethod.type
-                }
-                : method
-        );
+                })
+            });
 
-        savePaymentMethods(updatedMethods);
-
-        // Сброс состояния
-        setEditingMethod(null);
-        setNewMethod({
-            type: "card",
-            name: "",
-            number: "",
-            expiryDate: "",
-            cvv: "",
-            holderName: ""
-        });
-        setShowAddMethod(false);
+            if (res.ok) {
+                fetchPaymentMethods();
+                // Сброс состояния
+                setEditingMethod(null);
+                setNewMethod({
+                    type: "card",
+                    name: "",
+                    number: "",
+                    expiryDate: "",
+                    cvv: "",
+                    holderName: ""
+                });
+                setShowAddMethod(false);
+            } else {
+                alert("Ошибка при сохранении");
+            }
+        } catch (error) {
+            console.error("Failed to update payment method", error);
+            alert("Ошибка сети");
+        }
     };
 
     const filteredPayments = payments.filter((payment) => {
@@ -829,6 +970,15 @@ export const PaymentsTab = () => {
                                                                 </button>
                                                             </div>
                                                         )}
+                                                        {payment.status === "pending" && (
+                                                            <button
+                                                                onClick={() => handlePayClick(payment)}
+                                                                className="inline-flex items-center space-x-1 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200 shadow-sm"
+                                                            >
+                                                                <CreditCard className="h-4 w-4" />
+                                                                <span>Оплатить</span>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -1031,9 +1181,10 @@ export const PaymentsTab = () => {
                                 <input
                                     type="text"
                                     value={newMethod.number}
-                                    onChange={(e) => setNewMethod({ ...newMethod, number: e.target.value })}
-                                    placeholder={newMethod.type === "card" ? "1234 5678 9012 3456" : "INS-123456789"}
+                                    onChange={newMethod.type === "card" ? handleCardNumberChange : (e) => setNewMethod({ ...newMethod, number: e.target.value })}
+                                    placeholder={newMethod.type === "card" ? "0000 0000 0000 0000" : "INS-123456789"}
                                     className="w-full px-3 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
+                                    maxLength={newMethod.type === "card" ? 19 : undefined}
                                 />
                             </div>
 
@@ -1048,8 +1199,9 @@ export const PaymentsTab = () => {
                                             <input
                                                 type="text"
                                                 value={newMethod.expiryDate}
-                                                onChange={(e) => setNewMethod({ ...newMethod, expiryDate: e.target.value })}
+                                                onChange={handleExpiryDateChange}
                                                 placeholder="MM/YY"
+                                                maxLength={5}
                                                 className="w-full px-3 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
                                             />
                                         </div>
@@ -1060,7 +1212,7 @@ export const PaymentsTab = () => {
                                             <input
                                                 type="text"
                                                 value={newMethod.cvv}
-                                                onChange={(e) => setNewMethod({ ...newMethod, cvv: e.target.value })}
+                                                onChange={handleCVVChange}
                                                 placeholder="123"
                                                 maxLength={3}
                                                 className="w-full px-3 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
@@ -1074,7 +1226,7 @@ export const PaymentsTab = () => {
                                         <input
                                             type="text"
                                             value={newMethod.holderName}
-                                            onChange={(e) => setNewMethod({ ...newMethod, holderName: e.target.value })}
+                                            onChange={handleHolderNameChange}
                                             placeholder="IVAN IVANOV"
                                             className="w-full px-3 py-2 border-0 bg-gray-50 dark:bg-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 dark:text-white text-sm"
                                         />
@@ -1285,6 +1437,86 @@ export const PaymentsTab = () => {
                             >
                                 <Download className="h-4 w-4" />
                                 <span>Скачать чек</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Modal for Payment Selection */}
+            {showPayModal && selectedPaymentForPay && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white dark:bg-gray-900 rounded-xl max-w-md w-full">
+                        <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                Оплата услуги
+                            </h3>
+                            <button onClick={() => setShowPayModal(false)} className="text-gray-400 hover:text-gray-500">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">К оплате:</p>
+                                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                                    {selectedPaymentForPay.amount.toLocaleString()} ₸
+                                </p>
+                                <p className="text-sm text-gray-500 mt-1">{selectedPaymentForPay.description}</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Выберите способ оплаты:
+                                </label>
+                                {paymentMethods.length === 0 ? (
+                                    <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                        <p className="text-sm text-gray-500 mb-2">Нет сохраненных карт</p>
+                                        <button
+                                            onClick={() => { setShowPayModal(false); setActiveSection("methods"); setShowAddMethod(true); }}
+                                            className="text-blue-600 text-sm font-medium hover:underline"
+                                        >
+                                            Добавить карту
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {paymentMethods.map(method => (
+                                            <div
+                                                key={method.id}
+                                                onClick={() => setSelectedMethodId(method.id)}
+                                                className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${selectedMethodId === method.id
+                                                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                                                    : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                                    }`}
+                                            >
+                                                <div className="flex items-center space-x-3">
+                                                    <CreditCard className="h-5 w-5 text-gray-400" />
+                                                    <div>
+                                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{method.name}</p>
+                                                        <p className="text-xs text-gray-500">{method.number}</p>
+                                                    </div>
+                                                </div>
+                                                {selectedMethodId === method.id && (
+                                                    <div className="h-4 w-4 rounded-full bg-blue-600" />
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex justify-end space-x-3">
+                            <button
+                                onClick={() => setShowPayModal(false)}
+                                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={handleProcessPayment}
+                                disabled={!selectedMethodId}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium"
+                            >
+                                Оплатить {selectedPaymentForPay.amount.toLocaleString()} ₸
                             </button>
                         </div>
                     </div>
